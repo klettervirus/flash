@@ -721,8 +721,9 @@ function renderSettings() {
                 </div>
                 <div class="flex gap-2">
                     <input type="text" id="newListName" placeholder="Neue Liste..." 
-                           class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none">
-                    <button onclick="createList()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Erstellen</button>
+                   value="${state.newListName}"
+                    class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none">
+                <button onclick="createList()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Erstellen</button>
                 </div>
             </div>`:''}
             
@@ -1152,5 +1153,6 @@ function uploadCSV() {
 // Initial render
 
 render();
+
 
 
