@@ -301,11 +301,6 @@ function handleAnswer(correct) {
                 const delta = state.curDur < 120 ? state.settings.adaptiveStep * 0.5 : state.settings.adaptiveStep;
                 state.curDur = Math.max(20, state.curDur - delta);
                 state.consCorrect = 0;
-                
-                const newTier = getTier(state.curDur).n;
-                if(oldTier !== newTier) {
-                    setTimeout(() => showTierUpgrade(oldTier, newTier), 500);
-                }
             }
         } else {
             state.consWrong++;
@@ -318,11 +313,23 @@ function handleAnswer(correct) {
         }
     }
     
+    const newTier = getTier(state.curDur).n;
+    const hasTierUpgrade = oldTier !== newTier;
+    
     if(state.idx < state.session.words.length - 1) {
         state.idx++;
         state.showBtns = false;
         render();
-        startCountdown();
+        
+        // HIER IST DIE ÄNDERUNG:
+        if(hasTierUpgrade) {
+            // Zeige Overlay ZUERST, dann Countdown
+            showTierUpgrade(oldTier, newTier);
+            setTimeout(() => startCountdown(), 3500); // Nach Overlay-Dauer
+        } else {
+            // Kein Tier-Upgrade: normal weitermachen
+            startCountdown();
+        }
     } else {
         finishSession();
     }
@@ -1140,4 +1147,5 @@ function uploadCSV() {
 }
 
 // Initial render
+
 render();
