@@ -1032,12 +1032,15 @@ function attachEvents() {
     });
     
     const nln = document.getElementById('newListName');
-    if(nln) {
-        nln.addEventListener('input', e => state.newListName = e.target.value);
-        nln.addEventListener('keypress', e => {
-            if(e.key === 'Enter') createList();
-        });
-    }
+if(nln) {
+    nln.addEventListener('input', e => {
+        state.newListName = e.target.value;
+        // KEIN render() hier!
+    });
+    nln.addEventListener('keypress', e => {
+        if(e.key === 'Enter') createList();
+    });
+}
     
     const wi = document.getElementById('wordInput');
     if(wi) {
@@ -1149,4 +1152,5 @@ function uploadCSV() {
 // Initial render
 
 render();
+
 
