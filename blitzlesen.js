@@ -252,7 +252,7 @@ function startSession() {
         return;
     }
     
-    const processedWords = procWords(allWords);
+    let processedWords = procWords(allWords);
     const words = state.settings.shuffle ? shuffle(processedWords) : processedWords;
     
     // Startgeschwindigkeit: Override oder gespeichert
@@ -261,6 +261,7 @@ function startSession() {
     
     state.session = {
         words, 
+        isEndless: state.settings.repeatWords,  // NEU
         startTime: new Date().toISOString(), 
         initialBaseDuration: startSpeed, 
         listName: activeLists.map(l => l.name).join(', ')
@@ -1303,3 +1304,4 @@ function uploadCSV() {
 
 // Initial render
 render();
+
