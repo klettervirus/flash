@@ -62,6 +62,7 @@ let state = {
     curDur: parseInt(localStorage.getItem('blitzlesen-last-speed')) || 250,
     typed: '',
     feedback: null,
+    correctWordToShow: null,
     totalWordsEver: parseInt(localStorage.getItem('blitzlesen-total-words')) || 0,
     achievements: JSON.parse(localStorage.getItem('blitzlesen-achievements')||'[]'),
     streak: 0,
@@ -73,7 +74,6 @@ let state = {
 const saved = localStorage.getItem('blitzlesen-wordlists');
 if(saved) {
     state.lists = JSON.parse(saved);
-    // Sicherstellen dass alle Listen ein 'active' Feld haben
     state.lists.forEach(l => {
         if(l.active === undefined) l.active = l.isDefault;
     });
@@ -109,13 +109,7 @@ const countSyl = w => {
     return v ? v.length : 1;
 };
 
-const procWords = wl => {
-    const processed = wl.map(w => ({text:w, syllables:countSyl(w)}));
-    if(state.settings.repeatWords) {
-        return [...processed, ...processed];
-    }
-    return processed;
-};
+const procWords = wl => wl.map(w => ({text:w, syllables:countSyl(w)}));
 
 const shuffle = a => {
     const s = [...a];
@@ -245,26 +239,24 @@ function startSession() {
         return;
     }
     
-    // Alle aktiven Listen zusammenfügen
     const allWords = activeLists.flatMap(list => list.words);
     if(allWords.length === 0) {
         alert('Die aktiven Listen enthalten keine Wörter!');
         return;
     }
     
-    let processedWords = procWords(allWords);
+    const processedWords = procWords(allWords);
     const words = state.settings.shuffle ? shuffle(processedWords) : processedWords;
     
-    // Startgeschwindigkeit: Override oder gespeichert
     const startSpeed = state.settings.overrideSpeed ? state.settings.baseDuration : state.curDur;
     state.curDur = startSpeed;
     
     state.session = {
         words, 
-        isEndless: state.settings.repeatWords,  // NEU
         startTime: new Date().toISOString(), 
         initialBaseDuration: startSpeed, 
-        listName: activeLists.map(l => l.name).join(', ')
+        listName: activeLists.map(l => l.name).join(', '),
+        isEndless: state.settings.repeatWords
     };
     state.idx = 0;
     state.results = [];
@@ -350,25 +342,35 @@ function handleAnswer(correct) {
     const newTier = getTier(state.curDur).n;
     const hasTierUpgrade = oldTier !== newTier;
     
- if(state.idx < state.session.words.length - 1) {
-    state.idx++;
-    // ...
-} else if(state.session.isEndless) {
-    // Zurück zum Anfang
-    state.idx = 0;
-    if(state.settings.shuffle) {
-        state.session.words = shuffle(state.session.words);
-    }
-    state.showBtns = false;
-    render();
-    if(hasTierUpgrade) {
-        showTierUpgrade(oldTier, newTier);
-        setTimeout(() => startCountdown(), 3500);
+    if(state.idx < state.session.words.length - 1) {
+        state.idx++;
+        state.showBtns = false;
+        render();
+        
+        if(hasTierUpgrade) {
+            showTierUpgrade(oldTier, newTier);
+            setTimeout(() => startCountdown(), 3500);
+        } else {
+            startCountdown();
+        }
+    } else if(state.session.isEndless) {
+        // Zurück zum Anfang - Endlos-Modus
+        state.idx = 0;
+        if(state.settings.shuffle) {
+            state.session.words = shuffle(state.session.words);
+        }
+        state.showBtns = false;
+        render();
+        
+        if(hasTierUpgrade) {
+            showTierUpgrade(oldTier, newTier);
+            setTimeout(() => startCountdown(), 3500);
+        } else {
+            startCountdown();
+        }
     } else {
-        startCountdown();
+        finishSession();
     }
-} else {
-    finishSession();
 }
 
 function showTierUpgrade(oldTier, newTier) {
@@ -396,15 +398,15 @@ function handleTypedSubmit() {
     state.feedback = isCorrect ? 'correct' : 'wrong';
     
     if(!isCorrect) {
-        state.correctWordToShow = correctWord;  // NEU
+        state.correctWordToShow = correctWord;
     }
     
     render();
     setTimeout(() => {
         state.feedback = null;
-        state.correctWordToShow = null;  // NEU
+        state.correctWordToShow = null;
         handleAnswer(isCorrect);
-    }, 2000);  // Länger zeigen: 2 Sek statt 1 Sek
+    }, 2000);
 }
 
 function finishSession() {
@@ -672,7 +674,6 @@ function renderSettings() {
 <div class="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-h-[90vh] overflow-y-auto">
     <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Einstellungen</h2>
     
-    <!-- Tab-Navigation -->
     <div class="flex gap-2 mb-6 border-b-2 border-gray-200">
         <button onclick="switchSettingsTab('lists')" 
                 class="flex-1 py-3 px-4 font-semibold transition-all ${state.settingsTab==='lists'?'text-indigo-600 border-b-4 border-indigo-600':'text-gray-500 hover:text-gray-700'}">
@@ -700,7 +701,6 @@ function renderSettings() {
 function renderListsTab() {
     return `
     <div class="space-y-6">
-        <!-- Listen-Übersicht mit Toggle -->
         <div class="bg-indigo-50 rounded-xl p-4 border-2 border-indigo-200">
             <div class="flex items-center justify-between mb-4">
                 <h4 class="font-bold text-gray-800">Aktive Listen</h4>
@@ -742,7 +742,6 @@ function renderListsTab() {
             `:''}
         </div>
         
-        <!-- Wörter bearbeiten -->
         <div>
             <div class="flex items-center justify-between mb-3">
                 <label class="font-semibold text-gray-700">
@@ -759,7 +758,6 @@ function renderListsTab() {
             <p class="text-xs text-gray-500 mt-1">${getActive().words.length} Wörter</p>
         </div>
         
-        <!-- Listen-Einstellungen -->
         <div class="space-y-4 bg-gray-50 rounded-xl p-4">
             <h4 class="font-bold text-gray-800">Listen-Einstellungen</h4>
             
@@ -776,8 +774,8 @@ function renderListsTab() {
             
             <div class="flex items-center justify-between p-3 bg-white rounded-lg">
                 <div>
-                    <span class="font-semibold text-gray-700 block">🔁 Wörter wiederholen</span>
-                    <span class="text-xs text-gray-500">Jedes Wort 2x zeigen</span>
+                    <span class="font-semibold text-gray-700 block">🔁 Endlos-Modus</span>
+                    <span class="text-xs text-gray-500">Liste immer wiederholen</span>
                 </div>
                 <button onclick="toggleSetting('repeatWords')" 
                         class="w-14 h-8 rounded-full transition-all ${state.settings.repeatWords?'bg-purple-600':'bg-gray-300'}">
@@ -796,7 +794,7 @@ function renderListsTab() {
                 </button>
             </div>
             
-            <div class="p-3 bg-white rounded-lg">
+            <div class="p-3 bg-white rounded-lg" id="overrideSpeedContainer">
                 <div class="flex items-center justify-between mb-3">
                     <div>
                         <span class="font-semibold text-gray-700 block">🚀 Startgeschwindigkeit überschreiben</span>
@@ -808,8 +806,8 @@ function renderListsTab() {
                     </button>
                 </div>
                 ${state.settings.overrideSpeed?`
-                    <div>
-                        <label class="block text-gray-700 font-semibold mb-2">
+                    <div id="overrideSpeedSlider">
+                        <label class="block text-gray-700 font-semibold mb-2" id="speedLabel">
                             Startgeschwindigkeit: <span class="text-red-600">${state.settings.baseDuration}ms</span>
                         </label>
                         <input type="range" min="20" max="500" step="10" value="${state.settings.baseDuration}" 
@@ -825,7 +823,6 @@ function renderListsTab() {
 function renderAdvancedTab() {
     return `
     <div class="space-y-6">
-        <!-- Adaptive Geschwindigkeit -->
         <div class="bg-green-50 rounded-xl p-4 border-2 border-green-200">
             <div class="flex items-center justify-between mb-4">
                 <div>
@@ -861,7 +858,6 @@ function renderAdvancedTab() {
             `:''}
         </div>
         
-        <!-- Feedback-Einstellungen -->
         <div class="space-y-3">
             <h4 class="font-bold text-gray-800">🔊 Feedback & Anzeige</h4>
             
@@ -909,21 +905,21 @@ function switchSettingsTab(tab) {
 function renderTraining() {
     const tier = getTier(state.curDur);
     const fontSizeClass = state.settings.fontSize === 'small' ? 'text-4xl md:text-5xl' : 
-                          state.settings.fontSize === 'large' ? 'text-6xl md:text-8xl' : 
+                          state.settings.fontSize === 'large' ? 'text-5xl md:text-7xl' : 
                           'text-5xl md:text-7xl';
     
     let content = '';
     if(state.countdown !== null && state.countdown > 0) {
         content = `<div class="text-9xl font-bold text-indigo-600 animate-pulse">${state.countdown}</div>`;
     } else if(state.showWord) {
-        content = `<div class="${fontSizeClass} font-bold text-gray-800 text-center">${state.session.words[state.idx].text}</div>`;
+        content = `<div class="${fontSizeClass} font-bold text-gray-800 text-center break-words px-4">${state.session.words[state.idx].text}</div>`;
     } else if(state.showBtns) {
-       if(state.feedback) {
-        content = `<div class="flex flex-col items-center py-12 ${state.feedback==='correct'?'text-green-600':'text-red-600'}">
-            <div class="text-9xl mb-4">${state.feedback==='correct'?'👍':'👎'}</div>
-            <div class="text-3xl font-bold">${state.feedback==='correct'?'Richtig!':'Falsch!'}</div>
-            ${state.correctWordToShow ? `<div class="text-2xl text-gray-700 mt-4">Korrekt: <span class="font-bold text-indigo-600">${state.correctWordToShow}</span></div>` : ''}
-        </div>`;
+        if(state.feedback) {
+            content = `<div class="flex flex-col items-center py-12 ${state.feedback==='correct'?'text-green-600':'text-red-600'}">
+                <div class="text-9xl mb-4">${state.feedback==='correct'?'👍':'👎'}</div>
+                <div class="text-3xl font-bold">${state.feedback==='correct'?'Richtig!':'Falsch!'}</div>
+                ${state.correctWordToShow ? `<div class="text-2xl text-gray-700 mt-4">Korrekt war: <span class="font-bold text-indigo-600">${state.correctWordToShow}</span></div>` : ''}
+            </div>`;
         } else if(!state.settings.requireTyping) {
             const quote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
             content = `<div class="w-full max-w-md space-y-4">
@@ -959,6 +955,8 @@ function renderTraining() {
         }
     }
     
+    const wordCount = state.session.isEndless ? `Wort ${state.idx + 1} (Endlos-Modus ∞)` : `Wort ${state.idx + 1} von ${state.session.words.length}`;
+    
     return `
 <div class="bg-white rounded-3xl shadow-2xl overflow-hidden">
     <div class="bg-gradient-to-r ${tier.c} p-4 text-white">
@@ -990,7 +988,7 @@ function renderTraining() {
             </button>
         </div>
         <div class="text-center text-sm text-gray-600">
-            Wort ${state.idx + 1} von ${state.session.words.length}
+            ${wordCount}
         </div>
         ${state.settings.adaptiveSpeed?`<div class="text-xs text-gray-600 text-center mt-1">
             Richtig: ${state.consCorrect}/${state.settings.adaptiveThreshold} | Falsch: ${state.consWrong}/${state.settings.adaptiveThreshold}
@@ -1092,10 +1090,6 @@ function renderHistory() {
 </div>`;
     }
     
-    // Geschwindigkeits-Chart Daten
-    const chartData = state.history.slice(0, 10).reverse();
-    
-    // Statistiken
     const avgAccuracy = Math.round(state.history.reduce((sum, s) => sum + s.accuracy, 0) / state.history.length);
     const bestAccuracy = Math.max(...state.history.map(s => s.accuracy));
     const fastestSpeed = Math.min(...state.history.map(s => s.finalBaseDuration || s.initialBaseDuration));
@@ -1165,10 +1159,15 @@ function renderHistory() {
 // === EVENT HANDLING ===
 function attachEvents() {
     const bd = document.getElementById('baseDurationSlider');
-    if(bd) bd.addEventListener('input', e => {
-        state.settings.baseDuration = parseInt(e.target.value);
-        render();
-    });
+    if(bd) {
+        bd.addEventListener('input', e => {
+            state.settings.baseDuration = parseInt(e.target.value);
+            const label = document.getElementById('speedLabel');
+            if(label) {
+                label.innerHTML = `Startgeschwindigkeit: <span class="text-red-600">${state.settings.baseDuration}ms</span>`;
+            }
+        });
+    }
     
     const th = document.getElementById('thresholdSlider');
     if(th) th.addEventListener('input', e => {
@@ -1188,7 +1187,6 @@ function attachEvents() {
         if(al) {
             al.words = parse(e.target.value);
             localStorage.setItem('blitzlesen-wordlists',JSON.stringify(state.lists));
-            // KEIN render() hier - verhindert Springen
         }
     });
     
@@ -1196,7 +1194,6 @@ function attachEvents() {
     if(nln) {
         nln.addEventListener('input', e => {
             state.newListName = e.target.value;
-            // KEIN render() hier - verhindert Springen
         });
         nln.addEventListener('keypress', e => {
             if(e.key === 'Enter') {
@@ -1218,7 +1215,6 @@ function attachEvents() {
     const csv = document.getElementById('csvUpload');
     if(csv) csv.addEventListener('change', handleCSVUpload);
     
-    // Chart rendern wenn auf History-Screen
     if(state.screen === 'history' && state.history.length > 0) {
         setTimeout(() => renderSpeedChart(), 100);
     }
@@ -1315,6 +1311,3 @@ function uploadCSV() {
 
 // Initial render
 render();
-
-
-
