@@ -394,11 +394,17 @@ function handleTypedSubmit() {
     const userWord = state.typed.trim();
     const isCorrect = userWord === correctWord;
     state.feedback = isCorrect ? 'correct' : 'wrong';
+    
+    if(!isCorrect) {
+        state.correctWordToShow = correctWord;  // NEU
+    }
+    
     render();
     setTimeout(() => {
         state.feedback = null;
+        state.correctWordToShow = null;  // NEU
         handleAnswer(isCorrect);
-    }, 1000);
+    }, 2000);  // Länger zeigen: 2 Sek statt 1 Sek
 }
 
 function finishSession() {
@@ -912,11 +918,12 @@ function renderTraining() {
     } else if(state.showWord) {
         content = `<div class="${fontSizeClass} font-bold text-gray-800 text-center">${state.session.words[state.idx].text}</div>`;
     } else if(state.showBtns) {
-        if(state.feedback) {
-            content = `<div class="flex flex-col items-center py-12 ${state.feedback==='correct'?'text-green-600':'text-red-600'}">
-                <div class="text-9xl mb-4">${state.feedback==='correct'?'👍':'👎'}</div>
-                <div class="text-3xl font-bold">${state.feedback==='correct'?'Richtig!':'Falsch!'}</div>
-            </div>`;
+       if(state.feedback) {
+        content = `<div class="flex flex-col items-center py-12 ${state.feedback==='correct'?'text-green-600':'text-red-600'}">
+            <div class="text-9xl mb-4">${state.feedback==='correct'?'👍':'👎'}</div>
+            <div class="text-3xl font-bold">${state.feedback==='correct'?'Richtig!':'Falsch!'}</div>
+            ${state.correctWordToShow ? `<div class="text-2xl text-gray-700 mt-4">Korrekt: <span class="font-bold text-indigo-600">${state.correctWordToShow}</span></div>` : ''}
+        </div>`;
         } else if(!state.settings.requireTyping) {
             const quote = MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)];
             content = `<div class="w-full max-w-md space-y-4">
@@ -1308,5 +1315,6 @@ function uploadCSV() {
 
 // Initial render
 render();
+
 
 
