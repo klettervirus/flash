@@ -24,28 +24,30 @@ const ACHIEVEMENTS = {
     streak_week: {name: "Wochenstreak", emoji: "🔥", desc: "7 Tage hintereinander trainiert"},
     accuracy_king: {name: "Genauigkeitskönig", emoji: "👑", desc: "100% in einer Session"}
 };
-
 // === STATE ===
 let state = {
     screen: 'start',
     settings: {
         baseDuration: 250,
         shuffle: true,
+        repeatWords: false,
         adaptiveSpeed: true,
         adaptiveThreshold: 2,
         adaptiveStep: 10,
         requireTyping: false,
         soundEnabled: true,
         vibrationEnabled: true,
-        fontSize: 'normal'
+        fontSize: 'normal',
+        overrideSpeed: false
     },
     lists: [
-        {id:'default',name:'Standard-Wortliste',words:DEFAULT_WORDS,isDefault:true},
-        {id:'anti-raten',name:'Anti Raten',words:ANTI_RATEN,isDefault:false},
-        {id:'singular-plural',name:'Singular/Plural',words:SINGULAR_PLURAL,isDefault:false}
+        {id:'default',name:'Standard-Wortliste',words:DEFAULT_WORDS,isDefault:true,active:true},
+        {id:'anti-raten',name:'Anti Raten',words:ANTI_RATEN,isDefault:false,active:false},
+        {id:'singular-plural',name:'Singular/Plural',words:SINGULAR_PLURAL,isDefault:false,active:false}
     ],
     activeListId: 'default',
     showListMgr: false,
+    settingsTab: 'lists',
     newListName: '',
     session: null,
     idx: 0,
@@ -69,10 +71,15 @@ let state = {
 };
 
 const saved = localStorage.getItem('blitzlesen-wordlists');
-if(saved) state.lists = JSON.parse(saved);
+if(saved) {
+    state.lists = JSON.parse(saved);
+    // Sicherstellen dass alle Listen ein 'active' Feld haben
+    state.lists.forEach(l => {
+        if(l.active === undefined) l.active = l.isDefault;
+    });
+}
 const savedActive = localStorage.getItem('blitzlesen-active-list');
 if(savedActive) state.activeListId = savedActive;
-
 // === HILFSFUNKTIONEN ===
 const calcTime = (syl, base) => base * 5 * (1 - Math.pow(SYLLABLE_DECAY, syl));
 
@@ -102,7 +109,13 @@ const countSyl = w => {
     return v ? v.length : 1;
 };
 
-const procWords = wl => wl.map(w => ({text:w, syllables:countSyl(w)}));
+const procWords = wl => {
+    const processed = wl.map(w => ({text:w, syllables:countSyl(w)}));
+    if(state.settings.repeatWords) {
+        return [...processed, ...processed];
+    }
+    return processed;
+};
 
 const shuffle = a => {
     const s = [...a];
@@ -115,6 +128,7 @@ const shuffle = a => {
 
 const parse = t => t.split('\n').map(w=>w.trim()).filter(w=>w.length>0);
 const getActive = () => state.lists.find(l=>l.id===state.activeListId)||state.lists[0];
+const getActiveLists = () => state.lists.filter(l=>l.active);
 
 function calculateStreak() {
     const history = JSON.parse(localStorage.getItem('blitzlesen-history')||'[]');
@@ -225,12 +239,31 @@ function checkAchievements() {
 }
 // === SESSION FUNKTIONEN ===
 function startSession() {
-    const words = state.settings.shuffle ? shuffle(procWords(getActive().words)) : procWords(getActive().words);
+    const activeLists = getActiveLists();
+    if(activeLists.length === 0) {
+        alert('Bitte mindestens eine Liste aktivieren!');
+        return;
+    }
+    
+    // Alle aktiven Listen zusammenfügen
+    const allWords = activeLists.flatMap(list => list.words);
+    if(allWords.length === 0) {
+        alert('Die aktiven Listen enthalten keine Wörter!');
+        return;
+    }
+    
+    const processedWords = procWords(allWords);
+    const words = state.settings.shuffle ? shuffle(processedWords) : processedWords;
+    
+    // Startgeschwindigkeit: Override oder gespeichert
+    const startSpeed = state.settings.overrideSpeed ? state.settings.baseDuration : state.curDur;
+    state.curDur = startSpeed;
+    
     state.session = {
         words, 
         startTime: new Date().toISOString(), 
-        initialBaseDuration: state.curDur, 
-        listName: getActive().name
+        initialBaseDuration: startSpeed, 
+        listName: activeLists.map(l => l.name).join(', ')
     };
     state.idx = 0;
     state.results = [];
@@ -321,13 +354,11 @@ function handleAnswer(correct) {
         state.showBtns = false;
         render();
         
-        // HIER IST DIE ÄNDERUNG:
+        // Tier-Upgrade ZUERST, dann Countdown
         if(hasTierUpgrade) {
-            // Zeige Overlay ZUERST, dann Countdown
             showTierUpgrade(oldTier, newTier);
-            setTimeout(() => startCountdown(), 3500); // Nach Overlay-Dauer
+            setTimeout(() => startCountdown(), 3500);
         } else {
-            // Kein Tier-Upgrade: normal weitermachen
             startCountdown();
         }
     } else {
@@ -356,7 +387,7 @@ function showTierUpgrade(oldTier, newTier) {
 function handleTypedSubmit() {
     const correctWord = state.session.words[state.idx].text;
     const userWord = state.typed.trim();
-    const isCorrect = userWord === correctWord; // Exakter Vergleich mit Groß-/Kleinschreibung
+    const isCorrect = userWord === correctWord;
     state.feedback = isCorrect ? 'correct' : 'wrong';
     render();
     setTimeout(() => {
@@ -462,7 +493,8 @@ function createList() {
         id: Date.now().toString(),
         name: state.newListName,
         words: [],
-        isDefault: false
+        isDefault: false,
+        active: true
     };
     state.lists.push(newList);
     state.activeListId = newList.id;
@@ -488,6 +520,15 @@ function switchList(listId) {
     state.activeListId = listId;
     localStorage.setItem('blitzlesen-active-list', listId);
     render();
+}
+
+function toggleListActive(listId) {
+    const list = state.lists.find(l => l.id === listId);
+    if(list) {
+        list.active = !list.active;
+        localStorage.setItem('blitzlesen-wordlists', JSON.stringify(state.lists));
+        render();
+    }
 }
 
 function handleCSVUpload(e) {
@@ -614,137 +655,246 @@ function renderStart() {
 }
 
 function renderSettings() {
+    const activeListsCount = getActiveLists().length;
+    
     return `
 <div class="bg-white rounded-3xl shadow-2xl p-8 md:p-12 max-h-[90vh] overflow-y-auto">
     <h2 class="text-3xl font-bold text-gray-800 mb-6 text-center">Einstellungen</h2>
     
-    <div class="space-y-6 mb-8">
-        <div>
-            <label class="block text-gray-700 font-semibold mb-3">
-                Basisdauer (Reset): <span class="text-indigo-600">${state.settings.baseDuration}ms</span>
-            </label>
-            <input type="range" min="20" max="500" step="10" value="${state.settings.baseDuration}" 
-                   id="baseDurationSlider" class="w-full h-3 bg-indigo-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-            <p class="text-xs text-gray-500 mt-1">Aktuelle Geschwindigkeit: ${state.curDur}ms (wird über Sessions gespeichert)</p>
-        </div>
-        
-        <div class="flex items-center justify-between p-4 bg-purple-50 rounded-xl">
-            <div>
-                <span class="font-semibold text-gray-700 block">Wort eintippen</span>
-                <span class="text-xs text-gray-500">Statt Ja/Nein-Buttons</span>
-            </div>
-            <button onclick="toggleSetting('requireTyping')" class="w-14 h-8 rounded-full transition-all ${state.settings.requireTyping?'bg-purple-600':'bg-gray-300'}">
-                <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.requireTyping?'translate-x-7':'translate-x-1'}"></div>
-            </button>
-        </div>
-        
-        <div class="flex items-center justify-between p-4 bg-indigo-50 rounded-xl">
-            <span class="font-semibold text-gray-700">Wörter mischen</span>
-            <button onclick="toggleSetting('shuffle')" class="w-14 h-8 rounded-full transition-all ${state.settings.shuffle?'bg-indigo-600':'bg-gray-300'}">
-                <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.shuffle?'translate-x-7':'translate-x-1'}"></div>
-            </button>
-        </div>
-        
-        <div class="flex items-center justify-between p-4 bg-green-50 rounded-xl">
-            <div>
-                <span class="font-semibold text-gray-700 block">Adaptive Geschwindigkeit</span>
-                <span class="text-sm text-gray-500">${state.settings.adaptiveThreshold} richtig → -${state.settings.adaptiveStep}ms</span>
-            </div>
-            <button onclick="toggleSetting('adaptiveSpeed')" class="w-14 h-8 rounded-full transition-all ${state.settings.adaptiveSpeed?'bg-green-600':'bg-gray-300'}">
-                <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.adaptiveSpeed?'translate-x-7':'translate-x-1'}"></div>
-            </button>
-        </div>
-        
-        ${state.settings.adaptiveSpeed?`<div class="space-y-4 p-4 bg-green-50 rounded-xl border-2 border-green-200">
-            <div>
-                <label class="block text-gray-700 font-semibold mb-2">
-                    Nach X Wörtern: <span class="text-green-600">${state.settings.adaptiveThreshold}</span>
-                </label>
-                <input type="range" min="2" max="10" step="1" value="${state.settings.adaptiveThreshold}" 
-                       id="thresholdSlider" class="w-full h-3 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600">
-            </div>
-            <div>
-                <label class="block text-gray-700 font-semibold mb-2">
-                    Delta: <span class="text-green-600">±${state.settings.adaptiveStep}ms</span>
-                    <span class="text-xs text-gray-500">(bei <120ms halbiert)</span>
-                </label>
-                <input type="range" min="5" max="50" step="5" value="${state.settings.adaptiveStep}" 
-                       id="stepSlider" class="w-full h-3 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600">
-            </div>
-        </div>`:''}
-        
-        <div class="flex items-center justify-between p-4 bg-blue-50 rounded-xl">
-            <span class="font-semibold text-gray-700">🔊 Sound-Effekte</span>
-            <button onclick="toggleSetting('soundEnabled')" class="w-14 h-8 rounded-full transition-all ${state.settings.soundEnabled?'bg-blue-600':'bg-gray-300'}">
-                <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.soundEnabled?'translate-x-7':'translate-x-1'}"></div>
-            </button>
-        </div>
-        
-        <div class="flex items-center justify-between p-4 bg-pink-50 rounded-xl">
-            <span class="font-semibold text-gray-700">📳 Vibration</span>
-            <button onclick="toggleSetting('vibrationEnabled')" class="w-14 h-8 rounded-full transition-all ${state.settings.vibrationEnabled?'bg-pink-600':'bg-gray-300'}">
-                <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.vibrationEnabled?'translate-x-7':'translate-x-1'}"></div>
-            </button>
-        </div>
-        
-        <div>
-            <label class="block text-gray-700 font-semibold mb-3">Schriftgröße</label>
-            <div class="grid grid-cols-3 gap-2">
-                <button onclick="setFontSize('small')" class="py-2 px-4 rounded-lg ${state.settings.fontSize==='small'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700'}">Klein</button>
-                <button onclick="setFontSize('normal')" class="py-2 px-4 rounded-lg ${state.settings.fontSize==='normal'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700'}">Normal</button>
-                <button onclick="setFontSize('large')" class="py-2 px-4 rounded-lg ${state.settings.fontSize==='large'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700'}">Groß</button>
-            </div>
-        </div>
-        
-        <div>
-            <div class="flex items-center justify-between mb-3">
-                <label class="font-semibold text-gray-700">📚 Liste: ${getActive().name}</label>
-                <div class="flex gap-2">
-                    <button onclick="toggleListMgr()" class="text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1 rounded-lg">
-                        Listen verwalten
-                    </button>
-                    <button onclick="uploadCSV()" class="text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg">
-                        📤 CSV
-                    </button>
-                </div>
-            </div>
-            
-            ${state.showListMgr?`<div class="mb-4 p-4 bg-indigo-50 rounded-xl border-2 border-indigo-200">
-                <h4 class="font-bold text-gray-800 mb-3">Wortlisten-Verwaltung</h4>
-                <div class="space-y-2 mb-4 max-h-40 overflow-y-auto">
-                    ${state.lists.map(l=>`<div class="flex items-center justify-between p-2 rounded-lg ${state.activeListId===l.id?'bg-indigo-200':'bg-white'}">
-                        <button onclick="switchList('${l.id}')" class="flex-1 text-left font-semibold text-gray-700">
-                            ${l.name} (${l.words.length})
-                        </button>
-                        ${!l.isDefault?`<button onclick="deleteList('${l.id}')" class="text-red-500 text-sm px-2">Löschen</button>`:''}
-                    </div>`).join('')}
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" id="newListName" placeholder="Neue Liste..." 
-                   value="${state.newListName}"
-                    class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none">
-                <button onclick="createList()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg">Erstellen</button>
-                </div>
-            </div>`:''}
-            
-            <textarea id="wordArea" 
-                      class="w-full h-40 p-3 border-2 border-gray-300 rounded-xl focus:outline-none font-mono text-sm"
-            >${getActive().words.join('\n')}</textarea>
-            <p class="text-xs text-gray-500 mt-1">${getActive().words.length} Wörter</p>
-        </div>
+    <!-- Tab-Navigation -->
+    <div class="flex gap-2 mb-6 border-b-2 border-gray-200">
+        <button onclick="switchSettingsTab('lists')" 
+                class="flex-1 py-3 px-4 font-semibold transition-all ${state.settingsTab==='lists'?'text-indigo-600 border-b-4 border-indigo-600':'text-gray-500 hover:text-gray-700'}">
+            📚 Wortlisten (${activeListsCount})
+        </button>
+        <button onclick="switchSettingsTab('advanced')" 
+                class="flex-1 py-3 px-4 font-semibold transition-all ${state.settingsTab==='advanced'?'text-indigo-600 border-b-4 border-indigo-600':'text-gray-500 hover:text-gray-700'}">
+            ⚙️ Erweitert
+        </button>
     </div>
     
-    <div class="flex gap-3">
-        <button onclick="toStart()" class="flex-1 bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-xl">
+    ${state.settingsTab === 'lists' ? renderListsTab() : renderAdvancedTab()}
+    
+    <div class="flex gap-3 mt-8">
+        <button onclick="toStart()" class="flex-1 bg-gray-200 text-gray-700 font-semibold py-3 px-6 rounded-xl hover:bg-gray-300 transition-all">
             Abbrechen
         </button>
-        <button onclick="startSession()" class="flex-1 bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg">
+        <button onclick="startSession()" class="flex-1 bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl shadow-lg hover:bg-indigo-700 transition-all">
             Los geht's!
         </button>
     </div>
 </div>`;
 }
 
+function renderListsTab() {
+    return `
+    <div class="space-y-6">
+        <!-- Listen-Übersicht mit Toggle -->
+        <div class="bg-indigo-50 rounded-xl p-4 border-2 border-indigo-200">
+            <div class="flex items-center justify-between mb-4">
+                <h4 class="font-bold text-gray-800">Aktive Listen</h4>
+                <button onclick="state.showListMgr=!state.showListMgr;render()" 
+                        class="text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1 rounded-lg transition-all">
+                    ${state.showListMgr ? 'Schließen' : '+ Neue Liste'}
+                </button>
+            </div>
+            
+            <div class="space-y-2 max-h-64 overflow-y-auto">
+                ${state.lists.map(l => `
+                    <div class="bg-white rounded-lg p-3 flex items-center gap-3">
+                        <button onclick="toggleListActive('${l.id}')" 
+                                class="w-12 h-7 rounded-full transition-all ${l.active?'bg-green-500':'bg-gray-300'}">
+                            <div class="w-5 h-5 bg-white rounded-full shadow-md transform transition-transform ${l.active?'translate-x-6':'translate-x-1'}"></div>
+                        </button>
+                        <button onclick="switchList('${l.id}')" 
+                                class="flex-1 text-left font-semibold ${state.activeListId===l.id?'text-indigo-600':'text-gray-700'} hover:text-indigo-500 transition-colors">
+                            ${l.name} (${l.words.length})
+                        </button>
+                        ${!l.isDefault?`<button onclick="if(confirm('Liste wirklich löschen?'))deleteList('${l.id}')" 
+                                class="text-red-500 hover:text-red-700 text-sm px-2 transition-colors">🗑️</button>`:''}
+                    </div>
+                `).join('')}
+            </div>
+            
+            ${state.showListMgr?`
+                <div class="mt-4 pt-4 border-t-2 border-indigo-200">
+                    <div class="flex gap-2">
+                        <input type="text" id="newListName" placeholder="Name für neue Liste..." 
+                               value="${state.newListName}"
+                               class="flex-1 px-3 py-2 border-2 border-indigo-300 rounded-lg focus:outline-none focus:border-indigo-500 transition-colors">
+                        <button onclick="createList()" 
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-semibold transition-all">
+                            Erstellen
+                        </button>
+                    </div>
+                </div>
+            `:''}
+        </div>
+        
+        <!-- Wörter bearbeiten -->
+        <div>
+            <div class="flex items-center justify-between mb-3">
+                <label class="font-semibold text-gray-700">
+                    ✏️ ${getActive().name} bearbeiten
+                </label>
+                <button onclick="uploadCSV()" 
+                        class="text-sm bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg transition-all">
+                    📤 CSV Import
+                </button>
+            </div>
+            <textarea id="wordArea" 
+                      class="w-full h-48 p-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:border-indigo-500 font-mono text-sm transition-colors"
+                      placeholder="Ein Wort pro Zeile...">${getActive().words.join('\n')}</textarea>
+            <p class="text-xs text-gray-500 mt-1">${getActive().words.length} Wörter</p>
+        </div>
+        
+        <!-- Listen-Einstellungen -->
+        <div class="space-y-4 bg-gray-50 rounded-xl p-4">
+            <h4 class="font-bold text-gray-800">Listen-Einstellungen</h4>
+            
+            <div class="flex items-center justify-between p-3 bg-white rounded-lg">
+                <div>
+                    <span class="font-semibold text-gray-700 block">🔀 Wörter mischen</span>
+                    <span class="text-xs text-gray-500">Zufällige Reihenfolge</span>
+                </div>
+                <button onclick="toggleSetting('shuffle')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.shuffle?'bg-indigo-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.shuffle?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-white rounded-lg">
+                <div>
+                    <span class="font-semibold text-gray-700 block">🔁 Wörter wiederholen</span>
+                    <span class="text-xs text-gray-500">Jedes Wort 2x zeigen</span>
+                </div>
+                <button onclick="toggleSetting('repeatWords')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.repeatWords?'bg-purple-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.repeatWords?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            <div class="flex items-center justify-between p-3 bg-white rounded-lg">
+                <div>
+                    <span class="font-semibold text-gray-700 block">⌨️ Wort eintippen</span>
+                    <span class="text-xs text-gray-500">Statt Ja/Nein-Buttons</span>
+                </div>
+                <button onclick="toggleSetting('requireTyping')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.requireTyping?'bg-purple-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.requireTyping?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            <div class="p-3 bg-white rounded-lg">
+                <div class="flex items-center justify-between mb-3">
+                    <div>
+                        <span class="font-semibold text-gray-700 block">🚀 Startgeschwindigkeit überschreiben</span>
+                        <span class="text-xs text-gray-500">Ignoriert erspielte Geschwindigkeit (${state.curDur}ms)</span>
+                    </div>
+                    <button onclick="toggleSetting('overrideSpeed')" 
+                            class="w-14 h-8 rounded-full transition-all ${state.settings.overrideSpeed?'bg-red-600':'bg-gray-300'}">
+                        <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.overrideSpeed?'translate-x-7':'translate-x-1'}"></div>
+                    </button>
+                </div>
+                ${state.settings.overrideSpeed?`
+                    <div>
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Startgeschwindigkeit: <span class="text-red-600">${state.settings.baseDuration}ms</span>
+                        </label>
+                        <input type="range" min="20" max="500" step="10" value="${state.settings.baseDuration}" 
+                               id="baseDurationSlider" 
+                               class="w-full h-3 bg-red-200 rounded-lg appearance-none cursor-pointer accent-red-600">
+                    </div>
+                `:''}
+            </div>
+        </div>
+    </div>`;
+}
+
+function renderAdvancedTab() {
+    return `
+    <div class="space-y-6">
+        <!-- Adaptive Geschwindigkeit -->
+        <div class="bg-green-50 rounded-xl p-4 border-2 border-green-200">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <span class="font-semibold text-gray-700 block">⚡ Adaptive Geschwindigkeit</span>
+                    <span class="text-sm text-gray-500">${state.settings.adaptiveThreshold} richtig → -${state.settings.adaptiveStep}ms</span>
+                </div>
+                <button onclick="toggleSetting('adaptiveSpeed')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.adaptiveSpeed?'bg-green-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.adaptiveSpeed?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            ${state.settings.adaptiveSpeed?`
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Nach X Wörtern: <span class="text-green-600">${state.settings.adaptiveThreshold}</span>
+                        </label>
+                        <input type="range" min="2" max="10" step="1" value="${state.settings.adaptiveThreshold}" 
+                               id="thresholdSlider" 
+                               class="w-full h-3 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600">
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 font-semibold mb-2">
+                            Delta: <span class="text-green-600">±${state.settings.adaptiveStep}ms</span>
+                            <span class="text-xs text-gray-500">(bei <120ms halbiert)</span>
+                        </label>
+                        <input type="range" min="5" max="50" step="5" value="${state.settings.adaptiveStep}" 
+                               id="stepSlider" 
+                               class="w-full h-3 bg-green-200 rounded-lg appearance-none cursor-pointer accent-green-600">
+                    </div>
+                </div>
+            `:''}
+        </div>
+        
+        <!-- Feedback-Einstellungen -->
+        <div class="space-y-3">
+            <h4 class="font-bold text-gray-800">🔊 Feedback & Anzeige</h4>
+            
+            <div class="flex items-center justify-between p-4 bg-blue-50 rounded-xl">
+                <span class="font-semibold text-gray-700">🔊 Sound-Effekte</span>
+                <button onclick="toggleSetting('soundEnabled')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.soundEnabled?'bg-blue-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.soundEnabled?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            <div class="flex items-center justify-between p-4 bg-pink-50 rounded-xl">
+                <span class="font-semibold text-gray-700">📳 Vibration</span>
+                <button onclick="toggleSetting('vibrationEnabled')" 
+                        class="w-14 h-8 rounded-full transition-all ${state.settings.vibrationEnabled?'bg-pink-600':'bg-gray-300'}">
+                    <div class="w-6 h-6 bg-white rounded-full shadow-md transform transition-transform ${state.settings.vibrationEnabled?'translate-x-7':'translate-x-1'}"></div>
+                </button>
+            </div>
+            
+            <div>
+                <label class="block text-gray-700 font-semibold mb-3">📏 Schriftgröße</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setFontSize('small')" 
+                            class="py-2 px-4 rounded-lg font-semibold transition-all ${state.settings.fontSize==='small'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                        Klein
+                    </button>
+                    <button onclick="setFontSize('normal')" 
+                            class="py-2 px-4 rounded-lg font-semibold transition-all ${state.settings.fontSize==='normal'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                        Normal
+                    </button>
+                    <button onclick="setFontSize('large')" 
+                            class="py-2 px-4 rounded-lg font-semibold transition-all ${state.settings.fontSize==='large'?'bg-indigo-600 text-white':'bg-gray-200 text-gray-700 hover:bg-gray-300'}">
+                        Groß
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>`;
+}
+
+function switchSettingsTab(tab) {
+    state.settingsTab = tab;
+    render();
+}
 function renderTraining() {
     const tier = getTier(state.curDur);
     const fontSizeClass = state.settings.fontSize === 'small' ? 'text-4xl md:text-5xl' : 
@@ -788,7 +938,7 @@ function renderTraining() {
             content = `<div class="w-full max-w-md space-y-4">
                 <p class="text-center text-gray-600 text-lg mb-3">Welches Wort hast du gesehen?</p>
                 <input type="text" id="wordInput" 
-                       class="w-full text-2xl text-center p-4 border-4 border-indigo-300 rounded-xl focus:outline-none focus:border-indigo-500" 
+                       class="w-full text-2xl text-center p-4 border-4 border-indigo-300 rounded-xl focus:outline-none focus:border-indigo-500 transition-colors" 
                        placeholder="Wort eingeben..." autocomplete="off">
                 <button onclick="checkTyped()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-6 px-8 rounded-xl text-2xl shadow-lg transition-all">
                     Prüfen
@@ -817,13 +967,13 @@ function renderTraining() {
     
     <div class="bg-gray-50 border-t-2 border-gray-200 p-4">
         <div class="flex gap-2 mb-2">
-            <button onclick="toSettings()" class="bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-600">
+            <button onclick="toSettings()" class="bg-gray-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-gray-600 transition-all">
                 ⚙️
             </button>
-            <button onclick="togglePause()" class="flex-1 bg-yellow-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-yellow-600">
+            <button onclick="togglePause()" class="flex-1 bg-yellow-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-yellow-600 transition-all">
                 ${state.paused?'▶ Fortsetzen':'⏸ Pause'}
             </button>
-            <button onclick="confirmEnd()" class="flex-1 bg-red-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-red-600">
+            <button onclick="confirmEnd()" class="flex-1 bg-red-500 text-white font-semibold py-3 px-4 rounded-lg hover:bg-red-600 transition-all">
                 ⏹ Beenden
             </button>
         </div>
@@ -837,6 +987,7 @@ function renderTraining() {
     </div>
 </div>`;
 }
+
 function renderResults() {
     const latest = state.history[0];
     const tier1 = getTier(latest.initialBaseDuration);
@@ -916,7 +1067,6 @@ function renderResults() {
     </div>
 </div>`;
 }
-
 function renderHistory() {
     if(state.history.length === 0) {
         return `
@@ -924,7 +1074,7 @@ function renderHistory() {
     <div class="text-6xl mb-4">📊</div>
     <h2 class="text-3xl font-bold text-gray-800 mb-4">Noch keine Sessions</h2>
     <p class="text-gray-600 mb-6">Starte dein erstes Training, um deinen Fortschritt zu sehen!</p>
-    <button onclick="toStart()" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl">
+    <button onclick="toStart()" class="bg-indigo-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-indigo-700 transition-all">
         Zurück
     </button>
 </div>`;
@@ -932,8 +1082,6 @@ function renderHistory() {
     
     // Geschwindigkeits-Chart Daten
     const chartData = state.history.slice(0, 10).reverse();
-    const chartLabels = chartData.map((s, i) => `#${chartData.length - i}`);
-    const chartSpeeds = chartData.map(s => s.finalBaseDuration || s.initialBaseDuration);
     
     // Statistiken
     const avgAccuracy = Math.round(state.history.reduce((sum, s) => sum + s.accuracy, 0) / state.history.length);
@@ -1028,20 +1176,23 @@ function attachEvents() {
         if(al) {
             al.words = parse(e.target.value);
             localStorage.setItem('blitzlesen-wordlists',JSON.stringify(state.lists));
-            render();
+            // KEIN render() hier - verhindert Springen
         }
     });
     
     const nln = document.getElementById('newListName');
-if(nln) {
-    nln.addEventListener('input', e => {
-        state.newListName = e.target.value;
-        // KEIN render() hier!
-    });
-    nln.addEventListener('keypress', e => {
-        if(e.key === 'Enter') createList();
-    });
-}
+    if(nln) {
+        nln.addEventListener('input', e => {
+            state.newListName = e.target.value;
+            // KEIN render() hier - verhindert Springen
+        });
+        nln.addEventListener('keypress', e => {
+            if(e.key === 'Enter') {
+                e.preventDefault();
+                createList();
+            }
+        });
+    }
     
     const wi = document.getElementById('wordInput');
     if(wi) {
@@ -1151,8 +1302,4 @@ function uploadCSV() {
 }
 
 // Initial render
-
 render();
-
-
-
