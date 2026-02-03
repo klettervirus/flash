@@ -354,9 +354,9 @@ function showTierUpgrade(oldTier, newTier) {
 }
 
 function handleTypedSubmit() {
-    const correctWord = state.session.words[state.idx].text.toLowerCase();
-    const userWord = state.typed.trim().toLowerCase();
-    const isCorrect = userWord === correctWord;
+    const correctWord = state.session.words[state.idx].text;
+    const userWord = state.typed.trim();
+    const isCorrect = userWord === correctWord; // Exakter Vergleich mit Groß-/Kleinschreibung
     state.feedback = isCorrect ? 'correct' : 'wrong';
     render();
     setTimeout(() => {
@@ -1149,3 +1149,4 @@ function uploadCSV() {
 // Initial render
 
 render();
+
