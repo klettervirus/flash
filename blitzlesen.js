@@ -350,21 +350,25 @@ function handleAnswer(correct) {
     const newTier = getTier(state.curDur).n;
     const hasTierUpgrade = oldTier !== newTier;
     
-    if(state.idx < state.session.words.length - 1) {
-        state.idx++;
-        state.showBtns = false;
-        render();
-        
-        // Tier-Upgrade ZUERST, dann Countdown
-        if(hasTierUpgrade) {
-            showTierUpgrade(oldTier, newTier);
-            setTimeout(() => startCountdown(), 3500);
-        } else {
-            startCountdown();
-        }
-    } else {
-        finishSession();
+ if(state.idx < state.session.words.length - 1) {
+    state.idx++;
+    // ...
+} else if(state.session.isEndless) {
+    // Zurück zum Anfang
+    state.idx = 0;
+    if(state.settings.shuffle) {
+        state.session.words = shuffle(state.session.words);
     }
+    state.showBtns = false;
+    render();
+    if(hasTierUpgrade) {
+        showTierUpgrade(oldTier, newTier);
+        setTimeout(() => startCountdown(), 3500);
+    } else {
+        startCountdown();
+    }
+} else {
+    finishSession();
 }
 
 function showTierUpgrade(oldTier, newTier) {
@@ -1304,4 +1308,5 @@ function uploadCSV() {
 
 // Initial render
 render();
+
 
